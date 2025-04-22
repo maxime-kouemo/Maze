@@ -1,0 +1,74 @@
+<resources>
+    <string name="app_name">Labyrinthe</string>
+
+    <!--Activite principale-->
+    <string name="reset">Generer</string>
+    <string name="level">Niveau</string>
+    <string name="solution">Solution</string>
+    <string name="new_game">Nouvelle partie</string>
+    <string name="victory_time">Félicitations! Vous avez résolu le labyrinthe en %1$s</string>
+    <string name="grid_size">Taille de la grille: %1$s x %2$s</string>
+    <string name="grid_size_simple">Taille de la grille</string>
+    <string name="filled_squares">Cases remplie(s): %1$d</string>
+    <string name="random_game">Partie aléatoire %1$d</string>
+    <string name="congratulations">Félicitations !!!</string>
+    <string name="cancel">Annuler</string>
+    <string name="leave">Quitter</string>
+    <string name="leave_question">Voulez-vous terminer cette partie?</string>
+    <string name="loading">Chargement…</string>
+    <string name="type_number">Entrez un nombre N entre %1$d et %2$d. La taille de la grille sera N x N.</string>
+    <string name="load">Charger</string>
+    <string name="digits_only">Vous ne devez saisir que des chiffres.</string>
+
+    <string name="action_settings">Options</string>
+    <string name="title_activity_settings">Options</string>
+
+    <!-- Strings related to Settings -->
+
+    <!-- Example General settings -->
+
+    <string-array name="listofsolvers">
+        <item>Breadth First Search</item>
+        <item>Depth First Search</item>
+    </string-array>
+
+    <string-array name="listsolvervalues">
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
+
+    <string name="pref_title_ringtone">Ringtone</string>
+    <string name="pref_ringtone_silent">Silent</string>
+
+    <string name="pref_title_vibrate">Vibrer</string>
+    <string name="settings_color">Options de couleur</string>
+    <string name="options_color_hint">Choisissez la couleur</string>
+    <string name="options_color_title">Couleur</string>
+    <string name="options_solver_title">Algorithme de Resolution</string>
+    <string name="options_solver_hint">Choisissez le solveur</string>
+
+    <!-- Paramètres -->
+    <string name="appearance_settings">Apparence</string>
+    <string name="maze_color">Couleur du labyrinthe</string>
+    <string name="maze_color_summary">Sélectionnez la couleur du labyrinthe</string>
+
+    <string name="solver_settings">Paramètres du solveur</string>
+    <string name="solver_algorithm">Algorithme de résolution</string>
+    <string name="solver_algorithm_summary">Choisissez l\'algorithme pour résoudre le labyrinthe</string>
+
+    <string name="shadow_on_path_settings">Ombre</string>
+    <string name="shadow_on_path_summary">Autoriser l\'ombre sur le chemin</string>
+
+    <!-- Options d'algorithme de résolution -->
+    <string-array name="solver_algorithms">
+        <item>Recherche en profondeur</item>
+        <item>Recherche en largeur</item>
+    </string-array>
+
+    <string-array name="solver_algorithms_values">
+        <item>dfs</item>
+        <item>bfs</item>
+    </string-array>
+
+</resources>

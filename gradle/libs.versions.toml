@@ -1,0 +1,40 @@
+[versions]
+agp = "8.4.2"
+kotlin = "2.1.10"
+hilt = "2.51"
+devtoolsKsp = "2.1.10-1.0.31"
+daggerHiltVersion = "2.51"
+hiltCompose = "1.2.0"
+coreKtx = "1.15.0"
+junit = "4.13.2"
+
+appcompat = "1.7.0"
+colorPickerView = "2.3.0"
+legacySupportV4 = "1.0.0"
+constraintLayout = "2.2.1"
+preferenes = "1.2.1"
+preference = "1.2.1"
+material = "1.12.0"
+
+
+[libraries]
+appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat"}
+constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintLayout"}
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx"}
+preference-ktx = { group = "androidx.preference", name = "preference-ktx", version.ref = "preferenes"}
+color-picker-view = { group = "com.github.skydoves", name = "colorpickerview", version.ref = "colorPickerView"}
+legacy-support-v4 = { group = "androidx.legacy", name = "legacy-support-v4", version.ref = "legacySupportV4"}
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "daggerHiltVersion" }
+hilt-android-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "daggerHiltVersion" }
+hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltCompose" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltCompose" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+preference = { group = "androidx.preference", name = "preference", version.ref = "preference" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+googleDaggerHiltAndroid = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+googleDevtoolsKsp = { id = "com.google.devtools.ksp", version.ref = "devtoolsKsp" }

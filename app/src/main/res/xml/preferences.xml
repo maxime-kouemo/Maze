@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/solver_settings"
+        app:iconSpaceReserved="false">
+
+        <ListPreference
+            android:key="solver_algorithm"
+            android:title="@string/solver_algorithm"
+            android:summary="@string/solver_algorithm_summary"
+            android:entries="@array/solver_algorithms"
+            android:entryValues="@array/solver_algorithms_values"
+            android:defaultValue="dfs"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/appearance_settings"
+        app:iconSpaceReserved="false">
+
+        <maze.labyrinth.settings.ColorPreference
+            android:key="maze_color"
+            android:title="@string/maze_color"
+            android:summary="@string/maze_color_summary"
+            app:iconSpaceReserved="false" />
+
+        <CheckBoxPreference
+            android:key="shadow_on_path"
+            android:title="@string/shadow_on_path_settings"
+            android:summary="@string/shadow_on_path_summary"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>
