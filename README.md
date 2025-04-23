@@ -16,6 +16,6 @@ The disjoint set use here was implemented by my former teacher (his name is in t
 
  Example:
 
-![Screenshot](maze_pic.jpeg)
+![Screenshot](demo_files/maze_pic.jpeg)
 
 Edit: This version is an updated version, given Android's framework changes (build dependencies). The previous versions was from 2016 and can be found here(https://bitbucket.org/mamboa/maze) (I forgot the password of that account and can't edit it anymore.)
