@@ -26,17 +26,6 @@
 
     <!-- Example General settings -->
 
-    <string-array name="listofsolvers">
-        <item>Breadth First Search</item>
-        <item>Depth First Search</item>
-    </string-array>
-
-    <string-array name="listsolvervalues">
-        <item>1</item>
-        <item>2</item>
-    </string-array>
-
-
     <string name="pref_title_ringtone">Ringtone</string>
     <string name="pref_ringtone_silent">Silent</string>
 
@@ -66,10 +55,12 @@
     <string-array name="solver_algorithms">
         <item>Depth First Search</item>
         <item>Breadth First Search</item>
+        <item>A*</item>
     </string-array>
 
-    <string-array name="solver_algorithms_values">
+    <string-array name="solver_algorithms_values" translatable="false">
         <item>dfs</item>
         <item>bfs</item>
+        <item>a_star</item>
     </string-array>
 </resources>

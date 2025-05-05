@@ -18,13 +18,17 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.LifecycleOwner
 import maze.labyrinth.table.grid.GridState
 import maze.labyrinth.table.grid.IGridView
-import java.util.*
+import java.util.LinkedList
+import java.util.PriorityQueue
+import java.util.Random
+import java.util.Stack
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
@@ -37,6 +41,10 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     private val dotsPaint by lazy { Paint() }
     private val coloredCircle by lazy { Paint() }
     private val circonferenceRect by lazy { Rect() }
+    private val reusableRect by lazy { Rect() }
+    private val wallsPath by lazy { Path() }
+    private val reusablePath by lazy { Path() }
+    private val reusableClipRect by lazy { Rect() }
     private var isGameStarted = false
 
     // Dimensions of the game area and its squares (mWidth and mHeight)
@@ -45,10 +53,10 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     private var squareHeight: Int = 0
     private var totalNumberOfSquares: Int = 0
 
-    private val gridPaths by lazy { arrayListOf<GridPath>() } //list of grid paths, here there is only one path, but it can be more
-    private val displayedDots by lazy { arrayListOf<Dot>() }
-    private var pressedDot: Square? = null
-    private var currentlyDrawnGridPath: GridPath? = null
+    // Game state encapsulated in a dedicated data class
+    private var gameState: GameState = GameState()
+
+    // gridSquares holds all square data including neighbor information; maintained separately for efficient access during pathfinding
     private val gridSquares by lazy { arrayListOf<Square>() }
     private val colors: ArrayList<Int> by lazy { ArrayList() }
 
@@ -59,24 +67,17 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * Maze logic generation
      * ---------------------------------------------------------------------------------------------
      */
+    // walls holds wall data for maze generation; kept separate from gridSquares for clarity in maze generation algorithm
+    // Future optimization could explore deriving walls from gridSquares neighbor lists, but this would complicate generateMaze()
     private val walls by lazy { arrayListOf<Wall>() }
     private val currentPathToDraw by lazy { mutableSetOf<Int>() }
     private var mHeight: Int = 0
     private var mWidth: Int = 0
     private var generator = Random()
     private var ds: DisjointSet? = null
-    private val currentNode = 0
 
     companion object {
         val BLUE1 = Color.parseColor("#0070C0")
-        val RED1 = Color.parseColor("#FF0000")
-        val GREEN1 = Color.parseColor("#00B050")
-        val YELLOW = Color.parseColor("#FFFF0C")
-        val ORANGE = Color.parseColor("#E36C0A")
-        val BLUE2 = Color.parseColor("#C4EEF3")
-        val GREEN2 = Color.parseColor("#93FF99")
-        val RED2 = Color.parseColor("#943634")
-        val GRAY = Color.parseColor("#938953")
     }
 
     init {
@@ -99,13 +100,12 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         coloredCircle.style = Paint.Style.FILL
 
         totalNumberOfSquares = 0
+        // Initialize wallsPath for batch drawing
+        wallsPath.reset()
+        reusablePath.reset()
+        reusableClipRect.setEmpty()
     }
 
-    /**
-     * initializeGame
-     * instal a game on the grid     *
-     * @param
-     */
     override fun initializeGame(gridState: GridState) {
         reset()
         isGameStarted = true
@@ -115,12 +115,12 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
             gridSquares.clear()
         loadTheSquares(dimensions)
 
-        displayedDots.clear()
-        displayedDots.addAll(gridState.dots)
-        gridPaths.clear()
+        gameState.displayedDots.clear()
+        gameState.displayedDots.addAll(gridState.dots)
+        gameState.gridPaths.clear()
         val numberOfColors = gridState.dots.size / 2
         for (i in 0 until numberOfColors)
-            gridPaths.add(GridPath(gridState.dots[2 * i].colorIndex))
+            gameState.gridPaths.add(GridPath(gridState.dots[2 * i].colorIndex))
 
         initializeMaze(dimensions, dimensions) //important to define the squares first
         generateMaze()
@@ -136,13 +136,15 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     }
 
     override fun onDraw(canvas: Canvas) {
-        //1- Here we draw the circumference of the table
-        circonferenceRect.set(
-            conversionFromGridToScreenX(0),  // left
-            conversionFromGridToScreenY(0),     // top
-            squareWidth * dimensions,          // right
-            squareHeight * dimensions
-        )       // bottom
+        // Precompute bounds for circonferenceRect
+        if (circonferenceRect.isEmpty) {
+            circonferenceRect.set(
+                conversionFromGridToScreenX(0),  // left
+                conversionFromGridToScreenY(0),     // top
+                squareWidth * dimensions,          // right
+                squareHeight * dimensions
+            )       // bottom
+        }
         canvas.drawRect(circonferenceRect, gridSquaresPaint)
 
         //2- we draw the walls
@@ -152,16 +154,17 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         drawDots(canvas)
 
         //4- we add colors to the filled squares
-        for (i in 0 until gridPaths.size) {
-            if (gridPaths[i] !== currentlyDrawnGridPath)
-                drawPath(canvas, gridPaths[i])
+        for (i in 0 until gameState.gridPaths.size) {
+            if (gameState.gridPaths[i] !== gameState.currentlyDrawnGridPath)
+                drawPath(canvas, gameState.gridPaths[i])
         }
 
         //5- draw the active path
-        currentlyDrawnGridPath?.let { drawPath(canvas, it) }
+        gameState.currentlyDrawnGridPath?.let { drawPath(canvas, it) }
 
         //6- draw the shadow of the squares
         drawCircleAroundTheFinger(canvas)
+        // Avoid unnecessary invalidate calls here
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -186,124 +189,166 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         val y = event.y.toInt()
         val column = conversionFromScreenToGridX(x)
         val line = conversionFromScreenToGridY(y)
+        // Cache the last touched grid coordinates to avoid recalculation
+        val cachedSquare = Square(column, line)
 
-        if (column >= dimensions || line >= dimensions || column < 0 || line < 0) {
-            currentlyDrawnGridPath?.let {
-                updateIncompletePath(it)
-                displayTheActivePath()
-                gridInterface?.update()
-            }
-            pressedDot = null
-            //refresh
-            invalidate()
-            invalidateParentActivity()
+        if (isOutOfBounds(column, line)) {
+            handleOutOfBounds()
             return true
         }
-        //launch the stopwatch
-        if (isGameStarted) {
-            gridInterface?.startStopWatch()
-            gridInterface?.setStartedGame(true)
-            isGameStarted = false
-        }
 
-        val aSquare = Square(column, line)
+        // Launch the stopwatch if game just started
+        startGameIfNeeded()
+
         when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                val gridPath = getASquaresPath(aSquare, true)
-                gridPath?.let {
-                    if (ifDotPresent(aSquare)) {
-                        it.resetPath()
-                        it.addSquare(Square(column, line))
-                        updateIncompletePath(it)
-                        gridInterface?.updateSquares()
-                    } else {
-                        it.removeASquare(aSquare)
-                        gridInterface?.updateSquares()
-                    }
-                    currentlyDrawnGridPath = it
-                    pressedDot = Square(x, y)
-                }
-            }
-
-            MotionEvent.ACTION_MOVE ->
-                currentlyDrawnGridPath?.let { gridPath ->
-                    pressedDot = Square(x, y)
-                    //if the square is adjacent to the last square of the active path
-                    if (aSquare != gridPath.theLastSquare && !gridPath.ifEmpty()) {
-                        if (isActionValid(aSquare)) {
-                            if (gridPath.contains(aSquare)) {
-                                //Remove a square from the path if it is already present in the path
-                                gridPath.removeASquare(aSquare)
-                                updateIncompletePath(gridPath)
-                                gridInterface?.updateSquares()
-                            } else {
-                                gridPath.addSquare(aSquare)
-                                gridInterface?.updateSquares()
-                                //if the square contains the last dot
-                                val lastDot = getTheDotInASquare(aSquare)
-                                if (lastDot != null && aSquare != gridPath.theFirstSquare) {
-                                    updateIncompletePath(gridPath)
-                                    displayTheActivePath()
-                                    updateCompletePath(lastDot)
-                                    gridInterface?.update()
-                                    pressedDot = null
-                                }
-                            }//add a square to the path if that square isn't already in the path
-                        }
-                    }
-                }
-
-            MotionEvent.ACTION_UP ->
-                currentlyDrawnGridPath?.let { gridPath ->
-                    updateIncompletePath(gridPath)
-                    displayTheActivePath()
-                    gridInterface?.update()
-                }
+            MotionEvent.ACTION_DOWN -> handleActionDown(cachedSquare, x, y)
+            MotionEvent.ACTION_MOVE -> handleActionMove(cachedSquare, x, y)
+            MotionEvent.ACTION_UP -> handleActionUp()
         }
 
-        //refresh
+        // Refresh the view
         invalidate()
         invalidateParentActivity()
         return true
     }
 
-    override fun invalidate() {
-        super.invalidate()
+    /**
+     * Checks if the touch coordinates are out of the grid bounds.
+     * @param column the grid column
+     * @param line the grid row
+     * @return true if out of bounds, false otherwise
+     */
+    private fun isOutOfBounds(column: Int, line: Int): Boolean {
+        return column >= dimensions || line >= dimensions || column < 0 || line < 0
+    }
+
+    /**
+     * Handles the logic for when touch is out of bounds.
+     */
+    private fun handleOutOfBounds() {
+        gameState.currentlyDrawnGridPath?.let {
+            updateIncompletePath(it)
+            displayTheActivePath()
+            gridInterface?.update()
+        }
+        gameState.pressedDot = null
+    }
+
+    /**
+     * Starts the game stopwatch if the game hasn't started yet.
+     */
+    private fun startGameIfNeeded() {
+        if (isGameStarted) {
+            gridInterface?.startStopWatch()
+            gridInterface?.setStartedGame(true)
+            isGameStarted = false
+        }
+    }
+
+    /**
+     * Handles the logic for MotionEvent.ACTION_DOWN.
+     * @param cachedSquare the square touched
+     * @param x the x-coordinate of the touch
+     * @param y the y-coordinate of the touch
+     */
+    private fun handleActionDown(cachedSquare: Square, x: Int, y: Int) {
+        val gridPath = getASquaresPath(cachedSquare, true)
+        gridPath?.let {
+            if (ifDotPresent(cachedSquare)) {
+                it.resetPath()
+                it.addSquare(Square(cachedSquare.column, cachedSquare.line))
+                updateIncompletePath(it)
+                gridInterface?.updateSquares()
+            } else {
+                it.removeASquare(cachedSquare)
+                gridInterface?.updateSquares()
+            }
+            gameState.currentlyDrawnGridPath = it
+            gameState.pressedDot = Square(x, y)
+        }
+    }
+
+    /**
+     * Handles the logic for MotionEvent.ACTION_MOVE.
+     * @param cachedSquare the square touched
+     * @param x the x-coordinate of the touch
+     * @param y the y-coordinate of the touch
+     */
+    private fun handleActionMove(cachedSquare: Square, x: Int, y: Int) {
+        gameState.currentlyDrawnGridPath?.let { gridPath ->
+            gameState.pressedDot = Square(x, y)
+            // If the square is adjacent to the last square of the active path
+            if (cachedSquare != gridPath.theLastSquare && !gridPath.ifEmpty()) {
+                if (isActionValid(cachedSquare)) {
+                    handlePathUpdate(cachedSquare, gridPath)
+                }
+            }
+        }
+    }
+
+    /**
+     * Handles updating the path based on the touched square.
+     * @param cachedSquare the square touched
+     * @param gridPath the current grid path being modified
+     */
+    private fun handlePathUpdate(cachedSquare: Square, gridPath: GridPath) {
+        if (gridPath.contains(cachedSquare)) {
+            // Remove a square from the path if it is already present in the path
+            gridPath.removeASquare(cachedSquare)
+            updateIncompletePath(gridPath)
+            gridInterface?.updateSquares()
+        } else {
+            gridPath.addSquare(cachedSquare)
+            gridInterface?.updateSquares()
+            // If the square contains the last dot
+            val lastDot = getTheDotInASquare(cachedSquare)
+            if (lastDot != null && cachedSquare != gridPath.theFirstSquare) {
+                updateIncompletePath(gridPath)
+                displayTheActivePath()
+                updateCompletePath(lastDot)
+                gridInterface?.update()
+                gameState.pressedDot = null
+            }
+        }
+    }
+
+    /**
+     * Handles the logic for MotionEvent.ACTION_UP.
+     */
+    private fun handleActionUp() {
+        gameState.currentlyDrawnGridPath?.let { gridPath ->
+            updateIncompletePath(gridPath)
+            displayTheActivePath()
+            gridInterface?.update()
+        }
     }
 
     private fun drawMazeWalls(canvas: Canvas) {
-        for (i in 0 until walls.size) {
-            val wall = walls[i]
-            //a wall can be drawn from the coordinates of either the square1 or square2
+        if (wallsPath.isEmpty) {
+            for (i in 0 until walls.size) {
+                val wall = walls[i]
+                //a wall can be drawn from the coordinates of either the square1 or square2
 
-            val square1 = gridSquares[wall.square1]
-            if (wall.horizontal) { // if the wall is horizontal
-                val x = conversionFromGridToScreenX(square1.column)
-                val y = conversionFromGridToScreenY(square1.line)
-                val x2 =
-                    conversionFromGridToScreenX(square1.column) + squareWidth //as we are talking about squares, mWidth or mHeight are the same
-                val y2 = conversionFromGridToScreenY(square1.line)
-                canvas.drawLine(
-                    x.toFloat(),
-                    y.toFloat(),
-                    x2.toFloat(),
-                    y2.toFloat(),
-                    gridSquaresPaint
-                )
-            } else { // if the wall is vertical
-                val x = conversionFromGridToScreenX(square1.column)
-                val y = conversionFromGridToScreenY(square1.line)
-                val x2 = conversionFromGridToScreenX(square1.column)
-                val y2 = conversionFromGridToScreenY(square1.line) + squareWidth
-                canvas.drawLine(
-                    x.toFloat(),
-                    y.toFloat(),
-                    x2.toFloat(),
-                    y2.toFloat(),
-                    gridSquaresPaint
-                )
+                val square1 = gridSquares[wall.square1]
+                if (wall.horizontal) { // if the wall is horizontal
+                    val x = conversionFromGridToScreenX(square1.column)
+                    val y = conversionFromGridToScreenY(square1.line)
+                    val x2 =
+                        conversionFromGridToScreenX(square1.column) + squareWidth //as we are talking about squares, mWidth or mHeight are the same
+                    val y2 = conversionFromGridToScreenY(square1.line)
+                    wallsPath.moveTo(x.toFloat(), y.toFloat())
+                    wallsPath.lineTo(x2.toFloat(), y2.toFloat())
+                } else { // if the wall is vertical
+                    val x = conversionFromGridToScreenX(square1.column)
+                    val y = conversionFromGridToScreenY(square1.line)
+                    val x2 = conversionFromGridToScreenX(square1.column)
+                    val y2 = conversionFromGridToScreenY(square1.line) + squareWidth
+                    wallsPath.moveTo(x.toFloat(), y.toFloat())
+                    wallsPath.lineTo(x2.toFloat(), y2.toFloat())
+                }
             }
         }
+        canvas.drawPath(wallsPath, gridSquaresPaint)
     }
 
     /**
@@ -312,13 +357,13 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param canvas current canvas
      */
     private fun drawDots(canvas: Canvas) {
-        for (i in 0 until displayedDots.size) {
-            val dot = displayedDots[i]
+        for (i in 0 until gameState.displayedDots.size) {
+            val dot = gameState.displayedDots[i]
             dotsPaint.color = colors[dot.colorIndex]
             val origin = dot.square
             canvas.drawCircle(
-                (conversionFromGridToScreenX(origin.column) + squareWidth / 2).toFloat(),
-                (conversionFromGridToScreenY(origin.line) + squareHeight / 2).toFloat(),
+                getScreenXForColumn(origin.column),
+                getScreenYForRow(origin.line),
                 (squareWidth / 3).toFloat(),
                 dotsPaint
             )
@@ -332,7 +377,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param aGridPath path define by the finger on the screen
      */
     private fun drawPath(canvas: Canvas, aGridPath: GridPath) {
-        if (!aGridPath.ifEmpty()/* && currentGridPath != null*/) {
+        if (!aGridPath.ifEmpty()) {
             // draw shadow on each square containing a path
             if (gridInterface?.isShadowOnPathAllowed == true) {
                 for (square in aGridPath.gridPath) {
@@ -341,37 +386,38 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 }
             }
 
-            // drawing the path
-            val path = Path()
+            // we draw the path using reusablePath to avoid creating new Path objects
+            reusablePath.reset()
             val squaresList = aGridPath.gridPath
-            var touchedSquare = squaresList[0]
-            path.moveTo(
-                (conversionFromGridToScreenX(touchedSquare.column) + squareWidth / 2).toFloat(),
-                (conversionFromGridToScreenY(touchedSquare.line) + squareHeight / 2).toFloat()
-            )
+            if (squaresList.isNotEmpty()) {
+                var touchedSquare = squaresList[0]
+                reusablePath.moveTo(
+                    getScreenXForColumn(touchedSquare.column),
+                    getScreenYForRow(touchedSquare.line)
+                )
 
-            for (i in squaresList.indices) {
-                if (i > 0) {
-                    touchedSquare = squaresList[i]
-                    path.lineTo(
-                        (conversionFromGridToScreenX(touchedSquare.column) + squareWidth / 2).toFloat(),
-                        (conversionFromGridToScreenY(touchedSquare.line) + squareHeight / 2).toFloat()
-                    )
-                }
+                for (i in squaresList.indices) {
+                    if (i > 0) {
+                        touchedSquare = squaresList[i]
+                        reusablePath.lineTo(
+                            getScreenXForColumn(touchedSquare.column),
+                            getScreenYForRow(touchedSquare.line)
+                        )
+                    }
 
-                val currentGridPath = currentlyDrawnGridPath
-                if (currentGridPath != null) {
-                    if (i < squaresList.size - 1) {
-                        val nextSquare = squaresList[i + 1]
-                        if (aGridPath !== currentGridPath && currentGridPath.contains(nextSquare)) {
-                            break
+                    val currentGridPath = gameState.currentlyDrawnGridPath
+                    if (currentGridPath != null) {
+                        if (i < squaresList.size - 1) {
+                            val nextSquare = squaresList[i + 1]
+                            if (aGridPath !== currentGridPath && currentGridPath.contains(nextSquare)) {
+                                break
+                            }
                         }
                     }
                 }
-
+                drawnPathsPaint.color = colors[aGridPath.colorIndex]
+                canvas.drawPath(reusablePath, drawnPathsPaint)
             }
-            drawnPathsPaint.color = colors[aGridPath.colorIndex]
-            canvas.drawPath(path, drawnPathsPaint)
         }
     }
 
@@ -384,13 +430,12 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param aPath    the current grid path
      */
     private fun drawSquaresShadow(canvas: Canvas, aSquare: Square, aPath: GridPath) {
-        val rect = Rect()
         val x = conversionFromGridToScreenX(aSquare.column)
         val y = conversionFromGridToScreenY(aSquare.line)
-        rect.set(x, y, x + squareWidth, y + squareHeight)
+        reusableRect.set(x, y, x + squareWidth, y + squareHeight)
         shadowsPaint.color = colors[aPath.colorIndex]
         shadowsPaint.alpha = 50
-        canvas.drawRect(rect, shadowsPaint)
+        canvas.drawRect(reusableRect, shadowsPaint)
     }
 
     /**
@@ -400,14 +445,14 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param canvas the current canvas
      */
     private fun drawCircleAroundTheFinger(canvas: Canvas) {
-        val currentPressedDot = pressedDot
-        val currentActiveGridPath = currentlyDrawnGridPath
+        val currentPressedDot = gameState.pressedDot
+        val currentActiveGridPath = gameState.currentlyDrawnGridPath
 
         if (currentPressedDot != null && currentActiveGridPath != null) {
-            val newRect = canvas.clipBounds
-            newRect.inset(-squareWidth, -squareWidth)  //make the rect larger
+            reusableClipRect.set(canvas.clipBounds)
+            reusableClipRect.inset(-squareWidth, -squareWidth)  //make the rect larger
             canvas.save()
-            canvas.clipRect(newRect)
+            canvas.clipRect(reusableClipRect)
             coloredCircle.color = colors[currentActiveGridPath.colorIndex]
             coloredCircle.alpha = 50
             canvas.drawCircle(
@@ -424,7 +469,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * loadTheSquares
      * load the squares and assign them ids according to given dimensions
      * Notice that we give one dimension because we suppose that we will always encounter squares
-     * @param dimensions dimension du terrain
+     * @param dimensions size of the grid
      */
     private fun loadTheSquares(dimensions: Int) {
         var k = 0
@@ -450,9 +495,9 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param fence the fence dot
      */
     private fun updateCompletePath(fence: Dot) {
-        for (i in gridPaths.indices) {
-            if (gridPaths[i].colorIndex == fence.colorIndex)
-                gridPaths[i].isOver = true
+        for (i in gameState.gridPaths.indices) {
+            if (gameState.gridPaths[i].colorIndex == fence.colorIndex)
+                gameState.gridPaths[i].isOver = true
         }
     }
 
@@ -463,10 +508,10 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @param activePath
      */
     private fun updateIncompletePath(activePath: GridPath) {
-        for (i in gridPaths.indices) {
-            if (gridPaths[i].colorIndex == activePath.colorIndex)
-                if (gridPaths[i].isOver)
-                    gridPaths[i].isOver = false
+        for (i in gameState.gridPaths.indices) {
+            if (gameState.gridPaths[i].colorIndex == activePath.colorIndex)
+                if (gameState.gridPaths[i].isOver)
+                    gameState.gridPaths[i].isOver = false
         }
     }
 
@@ -476,8 +521,8 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      */
     private fun numberOfFormedTubes(): Int {
         var number = 0
-        for (i in gridPaths.indices)
-            if (gridPaths[i].isOver)
+        for (i in gameState.gridPaths.indices)
+            if (gameState.gridPaths[i].isOver)
                 number++
         return number
     }
@@ -509,16 +554,15 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         //for each square on the grid
         for (i in gridSquares.indices) {
             //we go through each path
-            for (j in gridPaths.indices) {
+            for (j in gameState.gridPaths.indices) {
                 //we go through each square of that path
-                for (k in 0 until gridPaths[j].gridPath.size) {
-                    if (gridSquares[i] == gridPaths[j].gridPath[k])
+                for (k in 0 until gameState.gridPaths[j].gridPath.size) {
+                    if (gridSquares[i] == gameState.gridPaths[j].gridPath[k])
                         gridSquares[i].numberOfPassages++
                 }
             }
         }
     }
-
 
     /**
      * ---------------------------------------------------------------------------------------------
@@ -571,6 +615,24 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     }
 
     /**
+     * Utility method to get the screen X coordinate for a grid column
+     * @param column the grid column
+     * @return the screen X coordinate
+     */
+    private fun getScreenXForColumn(column: Int): Float {
+        return (conversionFromGridToScreenX(column) + squareWidth / 2).toFloat()
+    }
+
+    /**
+     * Utility method to get the screen Y coordinate for a grid row
+     * @param row the grid row
+     * @return the screen Y coordinate
+     */
+    private fun getScreenYForRow(row: Int): Float {
+        return (conversionFromGridToScreenY(row) + squareHeight / 2).toFloat()
+    }
+
+    /**
      * ---------------------------------------------------------------------------------------------
      * Screen vs Grid conversion over
      * ---------------------------------------------------------------------------------------------
@@ -594,7 +656,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @return the dot if it exists, null otherwise
      */
     private fun getTheDotInASquare(aSquare: Square): Dot? {
-        return displayedDots.find { it.square == aSquare }
+        return gameState.displayedDots.find { it.square == aSquare }
     }
 
     /**
@@ -615,7 +677,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @return a path
      */
     private fun getThePathFromTheColor(colorIndex: Int): GridPath? {
-        return gridPaths.find { it.colorIndex == colorIndex }
+        return gameState.gridPaths.find { it.colorIndex == colorIndex }
     }
 
     /**
@@ -626,79 +688,51 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @return the path if it exists
      */
     private fun getASquaresPath(aSquare: Square, ifActive: Boolean): GridPath? {
-        val size = gridPaths.size
-        for (i in 0 until size) {
-            if (!ifActive || gridPaths[i] !== currentlyDrawnGridPath) {
-                val theSquares = gridPaths[i].gridPath
-                if (theSquares.contains(aSquare))
-                    return gridPaths[i]
-            }
+        // First, check existing paths for the square
+        val pathFromExisting = findPathContainingSquare(aSquare, ifActive)
+        if (pathFromExisting != null) {
+            return pathFromExisting
         }
 
-        //if a square contains a dot, we start with a path of that color
-        val point = getTheDotInASquare(aSquare)
-        if (point != null) {
-            val colorIndex = point.colorIndex
-            val gridPath = getThePathFromTheColor(colorIndex)
-            if (!(gridPath === currentlyDrawnGridPath && ifActive))
-                return gridPath
+        // If not found in paths, check if the square contains a dot to start a new path
+        return findPathFromDot(aSquare, ifActive)
+    }
+
+    /**
+     * Finds a path that contains the specified square among existing paths.
+     * @param aSquare the square to search for
+     * @param ifActive whether the path should be considered active
+     * @return the path if found, null otherwise
+     */
+    private fun findPathContainingSquare(aSquare: Square, ifActive: Boolean): GridPath? {
+        val size = gameState.gridPaths.size
+        for (i in 0 until size) {
+            if (!ifActive || gameState.gridPaths[i] !== gameState.currentlyDrawnGridPath) {
+                val theSquares = gameState.gridPaths[i].gridPath
+                if (theSquares.contains(aSquare)) {
+                    return gameState.gridPaths[i]
+                }
+            }
         }
         return null
     }
 
     /**
-     * ifDotPresent()
-     * tells if a square contains a dot
-     *
-     * @param aSquare the square that we want to check
-     * @return true if the dot is present, false otherwise
+     * Finds a path based on a dot in the specified square.
+     * @param aSquare the square to check for a dot
+     * @param ifActive whether the path should be considered active
+     * @return the path if a dot is found and a matching path exists, null otherwise
      */
-    private fun ifDotPresent(aSquare: Square): Boolean {
-        return displayedDots.find { it.square == aSquare } != null
-    }
-
-    /**
-     * displayTheActivePath()
-     * this method draws the path as long as the user's finger is going through the squares
-     */
-    private fun displayTheActivePath() {
-        currentlyDrawnGridPath?.let {
-            for (square in it.gridPath) {
-                gridInterface?.updateSquares()
+    private fun findPathFromDot(aSquare: Square, ifActive: Boolean): GridPath? {
+        val point = getTheDotInASquare(aSquare)
+        if (point != null) {
+            val colorIndex = point.colorIndex
+            val gridPath = getThePathFromTheColor(colorIndex)
+            if (!(gridPath === gameState.currentlyDrawnGridPath && ifActive)) {
+                return gridPath
             }
-            currentlyDrawnGridPath = null
         }
-    }
-
-    override fun reset() {
-        for (i in gridPaths.indices) {
-            //the following line updates the number of tubes
-            gridPaths[i].isOver = false
-            gridPaths[i].resetPath()
-        }
-
-        for (i in gridSquares.indices)
-            gridSquares[i].numberOfPassages = 0
-        gridPaths.clear()
-        currentlyDrawnGridPath = null
-        pressedDot = null
-        gridSquares.clear()
-        walls.clear()
-        displayedDots.clear()
-        gridSquares.clear()
-        walls.clear()
-        displayedDots.clear()
-    }
-
-
-    /**
-     * ifGameIsOver
-     * if all the tubes are formed the game is over
-     *
-     * @return true if the game is over, false otherwise
-     */
-    override fun ifGameIsOver(): Boolean {
-        return numberOfFormedTubes() == displayedDots.size / 2
+        return null
     }
 
     /**
@@ -709,27 +743,75 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
      * @return true if the action is valid
      */
     private fun isActionValid(aSquare: Square): Boolean {
-        currentlyDrawnGridPath?.let { path ->
-            //if they aren't adjacent
-            if (path.theLastSquare != null && !ifNeighbors(aSquare, path.theLastSquare!!))
-                return false
+        val currentPath = gameState.currentlyDrawnGridPath ?: return false
 
-            val square1 = getCorrespondingSquareInGridSquares(path.theLastSquare)
-            val square2 = getCorrespondingSquareInGridSquares(aSquare)
+        // Check if the squares are not adjacent
+        if (currentPath.theLastSquare == null || !ifNeighbors(
+                aSquare,
+                currentPath.theLastSquare!!
+            )
+        ) {
+            return false
+        }
 
-            //if there is a wall between them
-            if (square1 != null && square2 != null && isWallBetween(square1, square2))
-                return false
+        // Check if there is a wall between the squares
+        val square1 = getCorrespondingSquareInGridSquares(currentPath.theLastSquare)
+        val square2 = getCorrespondingSquareInGridSquares(aSquare)
+        if (square1 != null && square2 != null && isWallBetween(square1, square2)) {
+            return false
+        }
 
-            //if the square contains a dot of another color
-            val size = displayedDots.size
-            for (i in 0 until size) {
-                if (path.colorIndex != displayedDots[i].colorIndex && displayedDots[i].square == aSquare)
-                    return false
+        // Check if the square contains a dot of another color
+        return !hasDifferentColorDot(aSquare, currentPath.colorIndex)
+    }
+
+    /**
+     * Checks if a square contains a dot of a different color than the specified color index.
+     * @param aSquare the square to check
+     * @param colorIndex the color index to compare against
+     * @return true if the square has a dot of a different color, false otherwise
+     */
+    private fun hasDifferentColorDot(aSquare: Square, colorIndex: Int): Boolean {
+        val size = gameState.displayedDots.size
+        for (i in 0 until size) {
+            if (colorIndex != gameState.displayedDots[i].colorIndex && gameState.displayedDots[i].square == aSquare) {
+                return true
             }
-            return true
         }
         return false
+    }
+
+    override fun reset() {
+        for (i in gameState.gridPaths.indices) {
+            //the following line updates the number of tubes
+            gameState.gridPaths[i].isOver = false
+            gameState.gridPaths[i].resetPath()
+        }
+
+        for (i in gridSquares.indices)
+            gridSquares[i].numberOfPassages = 0
+        gameState.reset()
+        // Clear gridSquares to release memory; avoid duplicate clearing
+        gridSquares.clear()
+        // Clear walls to release memory; maintained separately for maze generation
+        walls.clear()
+        // Avoid duplicate clearing of gridSquares and walls
+        // Reset wallsPath for next initialization
+        wallsPath.reset()
+        // Also reset reusablePath to ensure it's clean for the next use
+        reusablePath.reset()
+        // Reset reusableClipRect to ensure it's clean for the next use
+        reusableClipRect.setEmpty()
+    }
+
+    /**
+     * ifGameIsOver
+     * if all the tubes are formed the game is over
+     *
+     * @return true if the game is over, false otherwise
+     */
+    override fun ifGameIsOver(): Boolean {
+        return numberOfFormedTubes() == gameState.displayedDots.size / 2
     }
 
     /**
@@ -796,6 +878,11 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 sqr2.neighborsWithWhomIShareAWall.add(sqr1.squareId)
             }
         }
+        // we precompute neighbors for all squares to ensure consistency
+        // This step is redundant since it's done above, but ensures completeness if logic changes
+        for (i in 0 until gridSquares.size) {
+            gridSquares[i].neighborsWithWhomIDontShareAWall // Access to ensure it's initialized if needed
+        }
     }
 
     /**
@@ -807,14 +894,12 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         }
     }
 
-    private fun displaySolutionPath(currentNode: Int = this.currentNode) {
+    private fun displaySolutionPath(solutionPath: MutableList<Int>) {
         /*if (colors.size == 0)
             loadAllColors()*/
         val solutionsPath = GridPath(gridInterface?.currentColor ?: 0) // current color
 
-        //we record the final path where the currentNode passed as parameter is the end
-        currentPathToDraw.addAll(gridSquares[currentNode].historyPath)
-        currentPathToDraw.add(currentNode)
+        currentPathToDraw.addAll(solutionPath)
         for (i in currentPathToDraw) {
             solutionsPath.addSquare(gridSquares[i])
             gridSquares[i].numberOfPassages++ // updates the number of filled squares
@@ -826,21 +911,31 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         // TODO uncomment if necessary
         invalidateParentActivity()
 
-        gridPaths.clear()
-        gridPaths.add(solutionsPath)
+        gameState.gridPaths.clear()
+        gameState.gridPaths.add(solutionsPath)
         currentPathToDraw.clear()
     }
 
     override fun solveDFS(start: Dot, end: Dot) {
+        val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
-        solveDFS(startSquare, endSquare)
+        val solutionPath = solveDFS(startSquare, endSquare)
+        val endTime = System.nanoTime()
+        val durationMs = (endTime - startTime) / 1_000_000.0
+        Log.d("GridView", "DFS Solving Time: $durationMs ms")
+
+        displaySolutionPath(solutionPath)
+        resetPathHistory()
     }
 
     /**
      * solves the Maze with the DFS (Depth First Search) algorithm
+     * @param start the starting point
+     * @param end   the end point
+     * @return the path from start to end
      */
-    private fun solveDFS(start: Int, end: Int) {
+    private fun solveDFS(start: Int, end: Int): MutableList<Int> {
         val frontier = Stack<Int>()
         frontier.push(start)
         val visitedNodes = ArrayList<Int>()
@@ -872,20 +967,32 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 currentNode = frontier.pop()
             }//we continue the search
         }
-        displaySolutionPath(end)
-        resetPathHistory()
+        return arrayListOf<Int>().apply {
+            addAll(gridSquares[end].historyPath)
+            add(end)
+        }
     }
 
     override fun solveBFS(start: Dot, end: Dot) {
+        val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
-        solveBFS(startSquare, endSquare)
+        val solutionPath = solveBFS(startSquare, endSquare)
+        val endTime = System.nanoTime()
+        val durationMs = (endTime - startTime) / 1_000_000.0
+        Log.d("GridView", "BFS Solving Time: $durationMs ms")
+
+        displaySolutionPath(solutionPath)
+        resetPathHistory()
     }
 
     /**
      * solves the Maze with the BFS (Breadth First Search) algorithm
+     * @param start the starting point
+     * @param end   the end point
+     * @return the path from start to end
      */
-    private fun solveBFS(start: Int, end: Int) {
+    private fun solveBFS(start: Int, end: Int): MutableList<Int> {
         val frontier = LinkedList<Int>()
         frontier.add(start)
         val visitedNodes = ArrayList<Int>()
@@ -917,10 +1024,97 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 currentNode = frontier.element()
             }//we continue the search
         }
-        displaySolutionPath(end)
+        return arrayListOf<Int>().apply {
+            addAll(gridSquares[end].historyPath)
+            add(end)
+        }
+    }
+
+    /**
+     * Solves the maze using A* algorithm to solve the maze with Manhattan distance heuristic
+     * @param start the starting point
+     * @param end   the end point
+     * @return the path from start to end
+     */
+    private fun solveAStar(start: Int, end: Int): MutableList<Int> {
+        val openSet = PriorityQueue<Pair<Int, Int>>(compareBy { it.second })
+        val openSetNodes = mutableSetOf<Int>() // Track nodes in openSet for quick lookup
+        val closedSet = mutableSetOf<Int>()
+        val cameFrom = mutableMapOf<Int, Int>()
+        val gScore = mutableMapOf<Int, Int>().withDefault { Int.MAX_VALUE }
+        val fScore = mutableMapOf<Int, Int>().withDefault { Int.MAX_VALUE }
+
+        gScore[start] = 0
+        fScore[start] = manhattanDistance(start, end)
+        openSet.add(Pair(start, fScore[start]!!))
+        openSetNodes.add(start)
+
+        while (openSet.isNotEmpty()) {
+            val current = openSet.poll().first
+            openSetNodes.remove(current)
+
+            if (current == end) {
+                // Reconstruct path
+                val path = mutableListOf(current)
+                var node = current
+                while (node in cameFrom) {
+                    node = cameFrom[node]!!
+                    path.add(node)
+                }
+                path.reverse()
+                // Record the path
+                return path
+            }
+
+            closedSet.add(current)
+
+            // Use precomputed neighbors list directly from gridSquares
+            for (neighbor in gridSquares[current].neighborsWithWhomIDontShareAWall) {
+                if (neighbor in closedSet) continue
+
+                val tentativeGScore = gScore[current]!! + 1
+
+                if (neighbor !in openSetNodes) {
+                    openSet.add(Pair(neighbor, fScore.getValue(neighbor)))
+                    openSetNodes.add(neighbor)
+                } else if (tentativeGScore >= gScore.getValue(neighbor)) {
+                    continue
+                }
+
+                cameFrom[neighbor] = current
+                gScore[neighbor] = tentativeGScore
+                fScore[neighbor] = gScore[neighbor]!! + manhattanDistance(neighbor, end)
+                // Instead of removing and re-adding, we add a new entry if the score is better
+                // This avoids the costly remove operation in PriorityQueue
+                if (neighbor in openSetNodes) {
+                    openSet.add(Pair(neighbor, fScore[neighbor]!!))
+                }
+            }
+        }
+        return arrayListOf()
+    }
+
+    override fun solveAStar(start: Dot, end: Dot) {
+        val startTime = System.nanoTime()
+        val startSquare = getSquareIdGivenADot(start)
+        val endSquare = getSquareIdGivenADot(end)
+        val solutionPath = solveAStar(startSquare, endSquare)
+        val endTime = System.nanoTime()
+        val durationMs = (endTime - startTime) / 1_000_000.0
+        Log.d("GridView", "A* Solving Time: $durationMs ms")
+
+        displaySolutionPath(solutionPath)
         resetPathHistory()
     }
 
+    /**
+     * Calculate Manhattan distance between two grid points
+     */
+    private fun manhattanDistance(node: Int, goal: Int): Int {
+        val nodeSquare = gridSquares[node]
+        val goalSquare = gridSquares[goal]
+        return abs(nodeSquare.column - goalSquare.column) + abs(nodeSquare.line - goalSquare.line)
+    }
 
     /**
      * For a given dot, returns the index of the square
@@ -933,21 +1127,6 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     }
 
     /**
-     * loadAllColors()
-     */
-    fun loadAllColors() {
-        colors.add(BLUE1)
-        colors.add(RED1)
-        colors.add(GREEN1)
-        colors.add(YELLOW)
-        colors.add(ORANGE)
-        colors.add(BLUE2)
-        colors.add(GREEN2)
-        colors.add(RED2)
-        colors.add(GRAY)
-    }
-
-    /**
      * add a color
      */
     override fun addAColor(color: Int) {
@@ -955,22 +1134,6 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         if (index == -1) {
             colors.add(color)
         }
-    }
-
-    /**
-     * delete the color add as parameter. Plus, there is an information telling if the index
-     * is already evaluated
-     * @param color
-     */
-    private fun deleteAColor(colorToRemove: Int) {
-        var index = colors.indexOf(colorToRemove)
-        if (index != -1) {
-            colors.removeAt(index)
-        }
-    }
-
-    private fun numberOfColors(): Int {
-        return colors.size
     }
 
     override fun getColorID(color: Int): Int {
@@ -985,13 +1148,13 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         //for the moment, there are only two points and 1 path
         if (colorIndex != -1) {
             //on the only path
-            if (gridPaths.isNotEmpty()) {
-                gridPaths[0].colorIndex = colorIndex
+            if (gameState.gridPaths.isNotEmpty()) {
+                gameState.gridPaths[0].colorIndex = colorIndex
             }
 
             //on the two dots
-            if (displayedDots.isNotEmpty()) {
-                for (dot in displayedDots) {
+            if (gameState.displayedDots.isNotEmpty()) {
+                for (dot in gameState.displayedDots) {
                     dot.colorIndex = colorIndex
                 }
             }
@@ -1017,10 +1180,38 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     }
 
     /**
-     * Todo:
-     * start and stop watch should be done from within
-     * invalidate decor
+     * Data class to encapsulate game state for better modularity and clarity
      */
+    data class GameState(
+        var gridPaths: ArrayList<GridPath> = arrayListOf(),
+        var displayedDots: ArrayList<Dot> = arrayListOf(),
+        var currentlyDrawnGridPath: GridPath? = null,
+        var pressedDot: Square? = null
+    ) {
+        fun reset() {
+            for (i in gridPaths.indices) {
+                gridPaths[i].isOver = false
+                gridPaths[i].resetPath()
+            }
+            gridPaths.clear()
+            currentlyDrawnGridPath = null
+            pressedDot = null
+            displayedDots.clear()
+        }
+    }
+
+    private fun displayTheActivePath() {
+        gameState.currentlyDrawnGridPath?.let {
+            for (square in it.gridPath) {
+                gridInterface?.updateSquares()
+            }
+            gameState.currentlyDrawnGridPath = null
+        }
+    }
+
+    private fun ifDotPresent(aSquare: Square): Boolean {
+        return getTheDotInASquare(aSquare) != null
+    }
 }
 
 interface IGrid {
@@ -1031,5 +1222,3 @@ interface IGrid {
     fun startStopWatch()
     fun setStartedGame(isGameStarted: Boolean)
 }
-
-

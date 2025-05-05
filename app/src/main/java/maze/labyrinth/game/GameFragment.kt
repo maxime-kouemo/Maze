@@ -56,8 +56,6 @@ class GameFragment : Fragment(), IGrid {
 
     // Constants moved from MainActivity companion object
     companion object {
-        private const val DFS_SOLVER = "dfs"
-        private const val BFS_SOLVER = "bfs"
         private const val MAXIMUM_SIZE = 30
         private const val MINIMUM_SIZE = 3
         private const val DEFAULT_SIZE = 5
@@ -134,9 +132,9 @@ class GameFragment : Fragment(), IGrid {
             append("")
             append(minutes)
             append(":")
-            append(String.format(Locale.getDefault(),"%02d", secs % 60))
+            append(String.format(Locale.getDefault(), "%02d", secs % 60))
             append(":")
-            append(String.format(Locale.getDefault(),"%02d", milliseconds / 10))
+            append(String.format(Locale.getDefault(), "%02d", milliseconds / 10))
         })
     }
 
@@ -205,17 +203,11 @@ class GameFragment : Fragment(), IGrid {
 
     private fun solveGame() {
         gameViewModel.run {
-            val dot1 = game?.dot1
-            val dot2 = game?.dot2
-            if (dot1 != null && dot2 != null) {
-                val solver =
-                    preferences.getString(getString(R.string.solving_algorithm), DFS_SOLVER)
-                        ?: DFS_SOLVER
-                when (solver) {
-                    BFS_SOLVER -> game?.solveBFS(dot1, dot2)
-                    DFS_SOLVER -> game?.solveDFS(dot1, dot2)
-                    else -> game?.solveDFS(dot1, dot2)
-                }
+            val solver =
+                preferences.getString(getString(R.string.solving_algorithm), MazeSolver.DFS.value)
+                    ?: MazeSolver.DFS.value
+            game?.let {
+                it.solve(MazeSolver.fromString(solver))
                 updateGridSize()
                 updateSquares()
                 stopwatchViewModel.pauseStopWatch()

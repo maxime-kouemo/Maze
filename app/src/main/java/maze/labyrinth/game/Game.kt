@@ -120,16 +120,20 @@ class Game(private val gridView: IGridView) {
         return if (size == 0) 0 else generator.nextInt(size)
     }
 
+    fun solve(mazeSolver: MazeSolver) {
+        if (dot1 == null || dot2 == null) {
+            throw IllegalStateException("Dots are not initialized")
+        }
+        when (mazeSolver) {
+            MazeSolver.BFS -> gridView.solveBFS(dot1!!, dot2!!)
+            MazeSolver.DFS -> gridView.solveDFS(dot1!!, dot2!!)
+            MazeSolver.A_STAR-> gridView.solveAStar(dot1!!, dot2!!)
+            else -> throw IllegalArgumentException("Unknown algorithm: ${mazeSolver.value}")
+        }
+    }
+
     fun reset() {
         gridView.reset()
-    }
-
-    fun solveBFS(start: Dot, end: Dot) {
-        gridView.solveBFS(start, end)
-    }
-
-    fun solveDFS(start: Dot, end: Dot) {
-        gridView.solveDFS(start, end)
     }
 
     fun ifGameIsOver(): Boolean {

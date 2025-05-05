@@ -8,6 +8,7 @@ interface IGridView {
     fun invalidate()
     fun solveBFS(start: Dot, end: Dot)
     fun solveDFS(start: Dot, end: Dot)
+    fun solveAStar(start: Dot, end: Dot)
     fun ifGameIsOver(): Boolean
     fun numberOfFilledSquares(): Int
     fun addAColor(color: Int)

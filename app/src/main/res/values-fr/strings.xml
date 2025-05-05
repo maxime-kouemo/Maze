@@ -23,20 +23,6 @@
     <string name="action_settings">Options</string>
     <string name="title_activity_settings">Options</string>
 
-    <!-- Strings related to Settings -->
-
-    <!-- Example General settings -->
-
-    <string-array name="listofsolvers">
-        <item>Breadth First Search</item>
-        <item>Depth First Search</item>
-    </string-array>
-
-    <string-array name="listsolvervalues">
-        <item>1</item>
-        <item>2</item>
-    </string-array>
-
 
     <string name="pref_title_ringtone">Ringtone</string>
     <string name="pref_ringtone_silent">Silent</string>
@@ -64,11 +50,7 @@
     <string-array name="solver_algorithms">
         <item>Recherche en profondeur</item>
         <item>Recherche en largeur</item>
-    </string-array>
-
-    <string-array name="solver_algorithms_values">
-        <item>dfs</item>
-        <item>bfs</item>
+        <item>Recherche A*</item>
     </string-array>
 
 </resources>
