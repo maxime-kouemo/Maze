@@ -23,6 +23,11 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.LifecycleOwner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import maze.labyrinth.table.grid.GridState
 import maze.labyrinth.table.grid.IGridView
 import java.util.LinkedList
@@ -122,9 +127,10 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         for (i in 0 until numberOfColors)
             gameState.gridPaths.add(GridPath(gridState.dots[2 * i].colorIndex))
 
-        initializeMaze(dimensions, dimensions) //important to define the squares first
+        initializeMaze(dimensions, dimensions, gridState.seed)
         generateMaze()
     }
+
 
     override fun onSizeChanged(a: Int, b: Int, x: Int, y: Int) {
         //thickness of the line
@@ -817,7 +823,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     /**
      * initialize the maze with all its walls
      */
-    private fun initializeMaze(w: Int, h: Int) {
+    private fun initializeMaze(w: Int, h: Int, seed: Long? = null) {
         mWidth = w
         mHeight = h
 
@@ -835,7 +841,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         }
 
         // Random sorting of walls
-        generator = Random()
+        generator = if (seed != null) Random(seed) else Random()
         for (i in walls.indices) {
             //randomly generating an index
             val randomWall = generator.nextInt(walls.size)
@@ -916,42 +922,50 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         currentPathToDraw.clear()
     }
 
-    override fun solveDFS(start: Dot, end: Dot) {
+    override fun solveDFS(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
         val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
-        val solutionPath = solveDFS(startSquare, endSquare)
-        val endTime = System.nanoTime()
-        val durationMs = (endTime - startTime) / 1_000_000.0
-        Log.d("GridView", "DFS Solving Time: $durationMs ms")
 
-        displaySolutionPath(solutionPath)
-        resetPathHistory()
+        CoroutineScope(Dispatchers.Default).launch {
+            val solutionPath = solveDFS(startSquare, endSquare, visualize, delayMs)
+            val endTime = System.nanoTime()
+            val durationMs = (endTime - startTime) / 1_000_000.0
+            Log.d("GridView", "DFS Solving Time: $durationMs ms")
+
+            withContext(Dispatchers.Main) {
+                displaySolutionPath(solutionPath)
+                resetPathHistory()
+            }
+        }
     }
 
-    /**
-     * solves the Maze with the DFS (Depth First Search) algorithm
-     * @param start the starting point
-     * @param end   the end point
-     * @return the path from start to end
-     */
-    private fun solveDFS(start: Int, end: Int): MutableList<Int> {
+    private suspend fun solveDFS(
+        start: Int,
+        end: Int,
+        visualize: Boolean,
+        delayMs: Long
+    ): MutableList<Int> {
         val frontier = Stack<Int>()
         frontier.push(start)
         val visitedNodes = ArrayList<Int>()
         var currentNode = start
+
         while (!frontier.isEmpty()) {
             visitedNodes.add(currentNode)
-            //if we found the solution
+
+            if (visualize) {
+                val currentPath = gridSquares[currentNode].historyPath + currentNode
+                visualizeStep(currentPath, delayMs)
+            }
+
             if (currentNode == end) {
                 break
             } else {
-                if (gridSquares[currentNode].neighborsWithWhomIDontShareAWall.size > 0) {
+                if (gridSquares[currentNode].neighborsWithWhomIDontShareAWall.isNotEmpty()) {
                     for (i in 0 until gridSquares[currentNode].neighborsWithWhomIDontShareAWall.size) {
-                        //if the node is unvisited we add it  currentNode -> child node
                         val neighbor = gridSquares[currentNode].neighborsWithWhomIDontShareAWall[i]
                         if (!visitedNodes.contains(neighbor)) {
-                            //save the path from start (or the root) to the current node
                             val neighborNodeSquare = gridSquares[neighbor]
                             if (currentNode == start)
                                 neighborNodeSquare.historyPath.add(currentNode)
@@ -963,9 +977,8 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                         }
                     }
                 }
-
                 currentNode = frontier.pop()
-            }//we continue the search
+            }
         }
         return arrayListOf<Int>().apply {
             addAll(gridSquares[end].historyPath)
@@ -973,43 +986,51 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         }
     }
 
-    override fun solveBFS(start: Dot, end: Dot) {
+    override fun solveBFS(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
         val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
-        val solutionPath = solveBFS(startSquare, endSquare)
-        val endTime = System.nanoTime()
-        val durationMs = (endTime - startTime) / 1_000_000.0
-        Log.d("GridView", "BFS Solving Time: $durationMs ms")
 
-        displaySolutionPath(solutionPath)
-        resetPathHistory()
+        CoroutineScope(Dispatchers.Default).launch {
+            val solutionPath = solveBFS(startSquare, endSquare, visualize, delayMs)
+            val endTime = System.nanoTime()
+            val durationMs = (endTime - startTime) / 1_000_000.0
+            Log.d("GridView", "BFS Solving Time: $durationMs ms")
+
+            withContext(Dispatchers.Main) {
+                displaySolutionPath(solutionPath)
+                resetPathHistory()
+            }
+        }
     }
 
-    /**
-     * solves the Maze with the BFS (Breadth First Search) algorithm
-     * @param start the starting point
-     * @param end   the end point
-     * @return the path from start to end
-     */
-    private fun solveBFS(start: Int, end: Int): MutableList<Int> {
+    private suspend fun solveBFS(
+        start: Int,
+        end: Int,
+        visualize: Boolean,
+        delayMs: Long
+    ): MutableList<Int> {
         val frontier = LinkedList<Int>()
         frontier.add(start)
         val visitedNodes = ArrayList<Int>()
         var currentNode = start
+
         while (!frontier.isEmpty()) {
             visitedNodes.add(currentNode)
             frontier.remove(currentNode)
-            //if we found the solution
+
+            if (visualize) {
+                val currentPath = gridSquares[currentNode].historyPath + currentNode
+                visualizeStep(currentPath, delayMs)
+            }
+
             if (currentNode == end) {
                 break
             } else {
-                if (gridSquares[currentNode].neighborsWithWhomIDontShareAWall.size > 0) {
+                if (gridSquares[currentNode].neighborsWithWhomIDontShareAWall.isNotEmpty()) {
                     for (i in 0 until gridSquares[currentNode].neighborsWithWhomIDontShareAWall.size) {
-                        //if the node is unvisited we add it    currentNode -> child node
                         val neighbor = gridSquares[currentNode].neighborsWithWhomIDontShareAWall[i]
                         if (!visitedNodes.contains(neighbor)) {
-                            //save the path from start (or the root) to the current node
                             val neighborNodeSquare = gridSquares[neighbor]
                             if (currentNode == start)
                                 neighborNodeSquare.historyPath.add(currentNode)
@@ -1022,7 +1043,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                     }
                 }
                 currentNode = frontier.element()
-            }//we continue the search
+            }
         }
         return arrayListOf<Int>().apply {
             addAll(gridSquares[end].historyPath)
@@ -1030,15 +1051,32 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         }
     }
 
-    /**
-     * Solves the maze using A* algorithm to solve the maze with Manhattan distance heuristic
-     * @param start the starting point
-     * @param end   the end point
-     * @return the path from start to end
-     */
-    private fun solveAStar(start: Int, end: Int): MutableList<Int> {
+    override fun solveAStar(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
+        val startTime = System.nanoTime()
+        val startSquare = getSquareIdGivenADot(start)
+        val endSquare = getSquareIdGivenADot(end)
+
+        CoroutineScope(Dispatchers.Default).launch {
+            val solutionPath = solveAStar(startSquare, endSquare, visualize, delayMs)
+            val endTime = System.nanoTime()
+            val durationMs = (endTime - startTime) / 1_000_000.0
+            Log.d("GridView", "A* Solving Time: $durationMs ms")
+
+            withContext(Dispatchers.Main) {
+                displaySolutionPath(solutionPath)
+                resetPathHistory()
+            }
+        }
+    }
+
+    private suspend fun solveAStar(
+        start: Int,
+        end: Int,
+        visualize: Boolean,
+        delayMs: Long
+    ): MutableList<Int> {
         val openSet = PriorityQueue<Pair<Int, Int>>(compareBy { it.second })
-        val openSetNodes = mutableSetOf<Int>() // Track nodes in openSet for quick lookup
+        val openSetNodes = mutableSetOf<Int>()
         val closedSet = mutableSetOf<Int>()
         val cameFrom = mutableMapOf<Int, Int>()
         val gScore = mutableMapOf<Int, Int>().withDefault { Int.MAX_VALUE }
@@ -1053,22 +1091,17 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
             val current = openSet.poll().first
             openSetNodes.remove(current)
 
+            if (visualize) {
+                val currentPath = reconstructPath(current, cameFrom)
+                visualizeStep(currentPath, delayMs)
+            }
+
             if (current == end) {
-                // Reconstruct path
-                val path = mutableListOf(current)
-                var node = current
-                while (node in cameFrom) {
-                    node = cameFrom[node]!!
-                    path.add(node)
-                }
-                path.reverse()
-                // Record the path
-                return path
+                return reconstructPath(current, cameFrom).toMutableList()
             }
 
             closedSet.add(current)
 
-            // Use precomputed neighbors list directly from gridSquares
             for (neighbor in gridSquares[current].neighborsWithWhomIDontShareAWall) {
                 if (neighbor in closedSet) continue
 
@@ -1084,46 +1117,41 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 cameFrom[neighbor] = current
                 gScore[neighbor] = tentativeGScore
                 fScore[neighbor] = gScore[neighbor]!! + manhattanDistance(neighbor, end)
-                // Instead of removing and re-adding, we add a new entry if the score is better
-                // This avoids the costly remove operation in PriorityQueue
                 if (neighbor in openSetNodes) {
                     openSet.add(Pair(neighbor, fScore[neighbor]!!))
                 }
             }
         }
-        return arrayListOf()
+        return mutableListOf()
     }
 
-    override fun solveAStar(start: Dot, end: Dot) {
-        val startTime = System.nanoTime()
-        val startSquare = getSquareIdGivenADot(start)
-        val endSquare = getSquareIdGivenADot(end)
-        val solutionPath = solveAStar(startSquare, endSquare)
-        val endTime = System.nanoTime()
-        val durationMs = (endTime - startTime) / 1_000_000.0
-        Log.d("GridView", "A* Solving Time: $durationMs ms")
-
-        displaySolutionPath(solutionPath)
-        resetPathHistory()
+    private fun reconstructPath(current: Int, cameFrom: Map<Int, Int>): List<Int> {
+        val path = mutableListOf(current)
+        var currentNode = current
+        while (currentNode in cameFrom) {
+            currentNode = cameFrom[currentNode]!!
+            path.add(0, currentNode)
+        }
+        return path
     }
 
-    /**
-     * Calculate Manhattan distance between two grid points
-     */
-    private fun manhattanDistance(node: Int, goal: Int): Int {
-        val nodeSquare = gridSquares[node]
-        val goalSquare = gridSquares[goal]
-        return abs(nodeSquare.column - goalSquare.column) + abs(nodeSquare.line - goalSquare.line)
+    private suspend fun visualizeStep(path: List<Int>, delayMs: Long) {
+        withContext(Dispatchers.Main) {
+            displayCurrentPath(path)
+            delay(delayMs)
+        }
     }
 
-    /**
-     * For a given dot, returns the index of the square
-     * @param point
-     * @return
-     */
-    private fun getSquareIdGivenADot(point: Dot): Int {
-        val squareIndex = gridSquares.indexOfFirst { it == point.square }
-        return if (squareIndex > -1) squareIndex else 0
+    private fun displayCurrentPath(path: List<Int>) {
+        val solutionsPath = GridPath(gridInterface?.currentColor ?: 0)
+        for (i in path) {
+            solutionsPath.addSquare(gridSquares[i])
+            gridSquares[i].numberOfPassages++
+        }
+        gameState.gridPaths.clear()
+        gameState.gridPaths.add(solutionsPath)
+        invalidate()
+        invalidateParentActivity()
     }
 
     /**
@@ -1211,6 +1239,17 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
 
     private fun ifDotPresent(aSquare: Square): Boolean {
         return getTheDotInASquare(aSquare) != null
+    }
+
+    private fun manhattanDistance(node: Int, goal: Int): Int {
+        val nodeSquare = gridSquares[node]
+        val goalSquare = gridSquares[goal]
+        return abs(nodeSquare.column - goalSquare.column) + abs(nodeSquare.line - goalSquare.line)
+    }
+
+    private fun getSquareIdGivenADot(point: Dot): Int {
+        val squareIndex = gridSquares.indexOfFirst { it == point.square }
+        return if (squareIndex > -1) squareIndex else 0
     }
 }
 

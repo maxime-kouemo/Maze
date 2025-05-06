@@ -7,6 +7,7 @@ data class GridState(
     val gridSize: Int,
     val squares: List<Square>  = emptyList(),
     val dots: List<Dot> = emptyList(),
+    val seed: Long? = null,
     val startPosition: Square? = null,
     val endPosition: Square? = null,
     val currentPath: List<Square> = emptyList(),

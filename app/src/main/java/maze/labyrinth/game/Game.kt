@@ -125,9 +125,9 @@ class Game(private val gridView: IGridView) {
             throw IllegalStateException("Dots are not initialized")
         }
         when (mazeSolver) {
-            MazeSolver.BFS -> gridView.solveBFS(dot1!!, dot2!!)
-            MazeSolver.DFS -> gridView.solveDFS(dot1!!, dot2!!)
-            MazeSolver.A_STAR-> gridView.solveAStar(dot1!!, dot2!!)
+            MazeSolver.BFS -> gridView.solveBFS(dot1!!, dot2!!, true)
+            MazeSolver.DFS -> gridView.solveDFS(dot1!!, dot2!!, true)
+            MazeSolver.A_STAR-> gridView.solveAStar(dot1!!, dot2!!, true)
             else -> throw IllegalArgumentException("Unknown algorithm: ${mazeSolver.value}")
         }
     }
