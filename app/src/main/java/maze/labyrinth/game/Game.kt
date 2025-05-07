@@ -37,14 +37,21 @@ class Game(private val gridView: IGridView) {
     private val dots = ArrayList<Dot>()
 
     private var gameID = 0
+    var isSolverVisualizationEnabled: Boolean = false
+    var solverVisualizationDelay: Int = 100
 
     internal var dot1: Dot? = null
     internal var dot2: Dot? = null
 
     private var generator = Random()
+    private var onSolverCompletedListener: (() -> Unit)? = null
 
     init {
         this.dots.addAll(dots)
+    }
+
+    fun setOnSolverCompletedListener(listener: () -> Unit) {
+        onSolverCompletedListener = listener
     }
 
     /**
@@ -125,10 +132,29 @@ class Game(private val gridView: IGridView) {
             throw IllegalStateException("Dots are not initialized")
         }
         when (mazeSolver) {
-            MazeSolver.BFS -> gridView.solveBFS(dot1!!, dot2!!, true)
-            MazeSolver.DFS -> gridView.solveDFS(dot1!!, dot2!!, true)
-            MazeSolver.A_STAR-> gridView.solveAStar(dot1!!, dot2!!, true)
+            MazeSolver.BFS -> gridView.solveBFS(
+                start = dot1!!,
+                end = dot2!!,
+                isVisualized = isSolverVisualizationEnabled,
+                delayPerStepInMs = solverVisualizationDelay.toLong()
+            )
+            MazeSolver.DFS -> gridView.solveDFS(
+                start = dot1!!,
+                end = dot2!!,
+                isVisualized = isSolverVisualizationEnabled,
+                delayPerStepInMs = solverVisualizationDelay.toLong()
+            )
+            MazeSolver.A_STAR-> gridView.solveAStar(
+                start = dot1!!,
+                end = dot2!!,
+                isVisualized = isSolverVisualizationEnabled,
+                delayPerStepInMs = solverVisualizationDelay.toLong()
+            )
             else -> throw IllegalArgumentException("Unknown algorithm: ${mazeSolver.value}")
+        }
+        // Notify when solver is done (will be triggered by GridView updates)
+        if (!isSolverVisualizationEnabled) {
+            onSolverCompletedListener?.invoke()
         }
     }
 
@@ -146,5 +172,9 @@ class Game(private val gridView: IGridView) {
 
     fun invalidate() {
         gridView.invalidate()
+    }
+
+    fun cancelSolver() {
+        gridView.cancelSolver()
     }
 }

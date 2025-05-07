@@ -53,4 +53,10 @@
         <item>Recherche A*</item>
     </string-array>
 
+    <string name="enable_solver_title">Activer le bouton Solution</string>
+    <string name="enable_solver_summary">Afficher ou masquer le bouton solution</string>
+    <string name="solver_visualization_title">Activer la visualisation du solveur</string>
+    <string name="solver_visualization_summary">Afficher le processus de résolution étape par étape</string>
+    <string name="solver_delay_title">Vitesse de visualisation</string>
+    <string name="solver_delay_summary">Ajuster le délai entre les étapes du solveur (en millisecondes)</string>
 </resources>

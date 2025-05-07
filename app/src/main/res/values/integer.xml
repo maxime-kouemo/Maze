@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <integer name="solver_delay_default_value">100</integer>
+    <integer name="solver_delay_max_value">500</integer>
+    <integer name="solver_delay_min_value">50</integer>
+</resources>

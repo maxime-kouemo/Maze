@@ -6,9 +6,10 @@ import maze.labyrinth.table.Dot
 interface IGridView {
     fun initializeGame(gridState: GridState)
     fun invalidate()
-    fun solveBFS(start: Dot, end: Dot, visualize: Boolean = false, delayMs: Long = 100)
-    fun solveDFS(start: Dot, end: Dot, visualize: Boolean = false, delayMs: Long = 100)
-    fun solveAStar(start: Dot, end: Dot, visualize: Boolean = false, delayMs: Long = 100)
+    fun solveBFS(start: Dot, end: Dot, isVisualized: Boolean = false, delayPerStepInMs: Long = 100)
+    fun solveDFS(start: Dot, end: Dot, isVisualized: Boolean = false, delayPerStepInMs: Long = 100)
+    fun solveAStar(start: Dot, end: Dot, isVisualized: Boolean = false, delayPerStepInMs: Long = 100)
+    fun cancelSolver()
     fun ifGameIsOver(): Boolean
     fun numberOfFilledSquares(): Int
     fun addAColor(color: Int)

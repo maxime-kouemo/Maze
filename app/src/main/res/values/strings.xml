@@ -1,9 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Maze</string>
 
     <string name="reset">Generate</string>
     <string name="level">Level</string>
     <string name="solution">Solution</string>
+    <string name="cancel">Cancel</string>
     <string name="new_game">New game</string>
     <string name="victory_time">Congratulations! You solved the maze in %1$s</string>
     <string name="grid_size">Grid\'s size: %1$s x %2$s</string>
@@ -11,7 +13,6 @@
     <string name="filled_squares">Filled square(s): %1$d</string>
     <string name="random_game">Random game %1$d</string>
     <string name="congratulations">Congratulations !!!</string>
-    <string name="cancel">Cancel</string>
     <string name="leave">Leave</string>
     <string name="leave_question">Do you want to end this game?</string>
     <string name="loading">Loading…</string>
@@ -63,4 +64,15 @@
         <item>bfs</item>
         <item>a_star</item>
     </string-array>
+
+    <!-- New Solver Settings -->
+    <string name="enable_solver" translatable="false">enable_solver</string>
+    <string name="enable_solver_title">Enable Solution Button</string>
+    <string name="enable_solver_summary">Show or hide the solution button</string>
+    <string name="solver_visualization" translatable="false">solver_visualization</string>
+    <string name="solver_visualization_title">Enable Solver Visualization</string>
+    <string name="solver_visualization_summary">Show the solving process step by step</string>
+    <string name="solver_delay" translatable="false">solver_delay</string>
+    <string name="solver_delay_title">Visualization Speed</string>
+    <string name="solver_delay_summary">Adjust the delay between solver steps (in milliseconds)</string>
 </resources>

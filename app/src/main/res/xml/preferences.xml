@@ -6,6 +6,13 @@
         android:title="@string/solver_settings"
         app:iconSpaceReserved="false">
 
+        <SwitchPreferenceCompat
+            android:key="enable_solver"
+            android:title="@string/enable_solver_title"
+            android:summary="@string/enable_solver_summary"
+            android:defaultValue="true"
+            app:iconSpaceReserved="false" />
+
         <ListPreference
             android:key="solver_algorithm"
             android:title="@string/solver_algorithm"
@@ -13,6 +20,23 @@
             android:entries="@array/solver_algorithms"
             android:entryValues="@array/solver_algorithms_values"
             android:defaultValue="dfs"
+            app:iconSpaceReserved="false" />
+
+        <SwitchPreferenceCompat
+            android:key="solver_visualization"
+            android:title="@string/solver_visualization_title"
+            android:summary="@string/solver_visualization_summary"
+            android:defaultValue="true"
+            app:iconSpaceReserved="false" />
+
+        <SeekBarPreference
+            android:key="solver_delay"
+            android:title="@string/solver_delay_title"
+            android:summary="@string/solver_delay_summary"
+            android:defaultValue="@integer/solver_delay_default_value"
+            android:max="@integer/solver_delay_max_value"
+            android:min="@integer/solver_delay_min_value"
+            app:showSeekBarValue="true"
             app:iconSpaceReserved="false" />
 
     </PreferenceCategory>

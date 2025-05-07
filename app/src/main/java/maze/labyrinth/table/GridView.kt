@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +67,10 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     private val colors: ArrayList<Int> by lazy { ArrayList() }
 
     var gridInterface: IGrid? = null
+
+    private var isSolverRunning = false
+    private var isSolverCancelled = false
+    private var solverJob: Job? = null
 
     /**
      * ---------------------------------------------------------------------------------------------
@@ -922,20 +927,54 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         currentPathToDraw.clear()
     }
 
-    override fun solveDFS(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
+    override fun cancelSolver() {
+        if (isSolverRunning) {
+            isSolverCancelled = true
+            solverJob?.cancel()
+            isSolverRunning = false
+            resetSolverState()
+            // Ensure the UI is updated after cancellation
+            invalidate()
+        }
+    }
+
+    private fun resetSolverState() {
+        isSolverCancelled = false
+        currentPathToDraw.clear()
+        // Clear all solver-related paths from game state
+        gameState.gridPaths.clear()
+        // Reset path history for all squares to avoid lingering data
+        resetPathHistory()
+        invalidate()
+    }
+
+    override fun solveDFS(start: Dot, end: Dot, isVisualized: Boolean, delayPerStepInMs: Long) {
+        if (isSolverRunning) return
         val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
 
-        CoroutineScope(Dispatchers.Default).launch {
-            val solutionPath = solveDFS(startSquare, endSquare, visualize, delayMs)
-            val endTime = System.nanoTime()
-            val durationMs = (endTime - startTime) / 1_000_000.0
-            Log.d("GridView", "DFS Solving Time: $durationMs ms")
+        isSolverRunning = true
+        isSolverCancelled = false
+        solverJob = CoroutineScope(Dispatchers.Default).launch {
+            try {
+                val solutionPath = solveDFS(startSquare, endSquare, isVisualized, delayPerStepInMs)
+                val endTime = System.nanoTime()
+                val durationMs = (endTime - startTime) / 1_000_000.0
+                Log.d("GridView", "DFS Solving Time: $durationMs ms")
 
-            withContext(Dispatchers.Main) {
-                displaySolutionPath(solutionPath)
-                resetPathHistory()
+                withContext(Dispatchers.Main) {
+                    if (!isSolverCancelled) {
+                        displaySolutionPath(solutionPath)
+                        resetPathHistory()
+                        // Notify game that solver is complete
+                        if (isVisualized) {
+                            gridInterface?.onSolverCompleted()
+                        }
+                    }
+                }
+            } finally {
+                isSolverRunning = false
             }
         }
     }
@@ -951,7 +990,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         val visitedNodes = ArrayList<Int>()
         var currentNode = start
 
-        while (!frontier.isEmpty()) {
+        while (!frontier.isEmpty() && !isSolverCancelled) {
             visitedNodes.add(currentNode)
 
             if (visualize) {
@@ -980,26 +1019,39 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 currentNode = frontier.pop()
             }
         }
-        return arrayListOf<Int>().apply {
+        return if (isSolverCancelled) mutableListOf() else arrayListOf<Int>().apply {
             addAll(gridSquares[end].historyPath)
             add(end)
         }
     }
 
-    override fun solveBFS(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
+    override fun solveBFS(start: Dot, end: Dot, isVisualized: Boolean, delayPerStepInMs: Long) {
+        if (isSolverRunning) return
         val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
 
-        CoroutineScope(Dispatchers.Default).launch {
-            val solutionPath = solveBFS(startSquare, endSquare, visualize, delayMs)
-            val endTime = System.nanoTime()
-            val durationMs = (endTime - startTime) / 1_000_000.0
-            Log.d("GridView", "BFS Solving Time: $durationMs ms")
+        isSolverRunning = true
+        isSolverCancelled = false
+        solverJob = CoroutineScope(Dispatchers.Default).launch {
+            try {
+                val solutionPath = solveBFS(startSquare, endSquare, isVisualized, delayPerStepInMs)
+                val endTime = System.nanoTime()
+                val durationMs = (endTime - startTime) / 1_000_000.0
+                Log.d("GridView", "BFS Solving Time: $durationMs ms")
 
-            withContext(Dispatchers.Main) {
-                displaySolutionPath(solutionPath)
-                resetPathHistory()
+                withContext(Dispatchers.Main) {
+                    if (!isSolverCancelled) {
+                        displaySolutionPath(solutionPath)
+                        resetPathHistory()
+                        // Notify game that solver is complete
+                        if (isVisualized) {
+                            gridInterface?.onSolverCompleted()
+                        }
+                    }
+                }
+            } finally {
+                isSolverRunning = false
             }
         }
     }
@@ -1015,7 +1067,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         val visitedNodes = ArrayList<Int>()
         var currentNode = start
 
-        while (!frontier.isEmpty()) {
+        while (!frontier.isEmpty() && !isSolverCancelled) {
             visitedNodes.add(currentNode)
             frontier.remove(currentNode)
 
@@ -1045,26 +1097,40 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
                 currentNode = frontier.element()
             }
         }
-        return arrayListOf<Int>().apply {
+        return if (isSolverCancelled) mutableListOf() else arrayListOf<Int>().apply {
             addAll(gridSquares[end].historyPath)
             add(end)
         }
     }
 
-    override fun solveAStar(start: Dot, end: Dot, visualize: Boolean, delayMs: Long) {
+    override fun solveAStar(start: Dot, end: Dot, isVisualized: Boolean, delayPerStepInMs: Long) {
+        if (isSolverRunning) return
         val startTime = System.nanoTime()
         val startSquare = getSquareIdGivenADot(start)
         val endSquare = getSquareIdGivenADot(end)
 
-        CoroutineScope(Dispatchers.Default).launch {
-            val solutionPath = solveAStar(startSquare, endSquare, visualize, delayMs)
-            val endTime = System.nanoTime()
-            val durationMs = (endTime - startTime) / 1_000_000.0
-            Log.d("GridView", "A* Solving Time: $durationMs ms")
+        isSolverRunning = true
+        isSolverCancelled = false
+        solverJob = CoroutineScope(Dispatchers.Default).launch {
+            try {
+                val solutionPath =
+                    solveAStar(startSquare, endSquare, isVisualized, delayPerStepInMs)
+                val endTime = System.nanoTime()
+                val durationMs = (endTime - startTime) / 1_000_000.0
+                Log.d("GridView", "A* Solving Time: $durationMs ms")
 
-            withContext(Dispatchers.Main) {
-                displaySolutionPath(solutionPath)
-                resetPathHistory()
+                withContext(Dispatchers.Main) {
+                    if (!isSolverCancelled) {
+                        displaySolutionPath(solutionPath)
+                        resetPathHistory()
+                        // Notify game that solver is complete
+                        if (isVisualized) {
+                            gridInterface?.onSolverCompleted()
+                        }
+                    }
+                }
+            } finally {
+                isSolverRunning = false
             }
         }
     }
@@ -1087,7 +1153,7 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
         openSet.add(Pair(start, fScore[start]!!))
         openSetNodes.add(start)
 
-        while (openSet.isNotEmpty()) {
+        while (openSet.isNotEmpty() && !isSolverCancelled) {
             val current = openSet.poll().first
             openSetNodes.remove(current)
 
@@ -1138,6 +1204,8 @@ class GridView(context: Context, attrs: AttributeSet) : View(context, attrs), IG
     private suspend fun visualizeStep(path: List<Int>, delayMs: Long) {
         withContext(Dispatchers.Main) {
             displayCurrentPath(path)
+            // Update the number of filled squares during visualization
+            gridInterface?.updateSquares()
             delay(delayMs)
         }
     }
@@ -1260,4 +1328,5 @@ interface IGrid {
     fun updateSquares()
     fun startStopWatch()
     fun setStartedGame(isGameStarted: Boolean)
+    fun onSolverCompleted()
 }
